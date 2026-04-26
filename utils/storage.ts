@@ -34,11 +34,21 @@ export interface ExerciseLog {
   exercises: string[]
 }
 
+export interface ExerciseSession {
+  id: string
+  date: string
+  type: string
+  durationMin?: number
+  steps?: number
+  burnedKcal: number
+}
+
 const KEYS = {
   profile: 'boco_profile',
   meals: 'boco_meals',
   logs: 'boco_logs',
   exerciseLogs: 'boco_exercise_logs',
+  exerciseSessions: 'boco_exercise_sessions',
   splash: 'boco_splash_seen',
 }
 
@@ -87,6 +97,31 @@ export function getExerciseLogs(): ExerciseLog[] {
 export function saveExerciseLog(log: ExerciseLog) {
   const logs = getExerciseLogs().filter(l => l.date !== log.date)
   localStorage.setItem(KEYS.exerciseLogs, JSON.stringify([...logs, log]))
+}
+
+export function getExerciseSessions(): ExerciseSession[] {
+  if (typeof window === 'undefined') return []
+  const raw = localStorage.getItem(KEYS.exerciseSessions)
+  return raw ? JSON.parse(raw) : []
+}
+
+export function getTodayExerciseSessions(): ExerciseSession[] {
+  const today = new Date().toISOString().slice(0, 10)
+  return getExerciseSessions().filter(s => s.date === today)
+}
+
+export function addExerciseSession(session: ExerciseSession) {
+  const sessions = getExerciseSessions()
+  localStorage.setItem(KEYS.exerciseSessions, JSON.stringify([...sessions, session]))
+}
+
+export function removeExerciseSession(id: string) {
+  const sessions = getExerciseSessions().filter(s => s.id !== id)
+  localStorage.setItem(KEYS.exerciseSessions, JSON.stringify(sessions))
+}
+
+export function getTodayBurnedKcal(): number {
+  return getTodayExerciseSessions().reduce((s, e) => s + e.burnedKcal, 0)
 }
 
 export function isSplashSeen(): boolean {

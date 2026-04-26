@@ -6,7 +6,7 @@ import BocoCard from '@/components/BocoCard'
 import MealCardRow from '@/components/MealCardRow'
 import FoodModal from '@/components/FoodModal'
 import InfoNudgeSheet from '@/components/InfoNudgeSheet'
-import { getProfile, getTodayMeals, upsertMeal, isSplashSeen, markSplashSeen, getTodayDate } from '@/utils/storage'
+import { getProfile, getTodayMeals, upsertMeal, isSplashSeen, markSplashSeen, getTodayDate, getTodayBurnedKcal } from '@/utils/storage'
 import type { Meal, MealItem } from '@/utils/storage'
 import { calcBocoStatus, getGreeting, formatDate } from '@/utils/boco'
 
@@ -66,7 +66,8 @@ export default function HomePage() {
   if (showSplash) return <SplashScreen onStart={handleSplashStart} />
 
   const totalKcal = meals.reduce((s, m) => s + m.totalKcal, 0)
-  const status = profileDone ? calcBocoStatus(totalKcal, targetKcal) : 'empty'
+  const burnedKcal = getTodayBurnedKcal()
+  const status = profileDone ? calcBocoStatus(totalKcal - burnedKcal, targetKcal) : 'empty'
   const diff = totalKcal - targetKcal
 
   return (

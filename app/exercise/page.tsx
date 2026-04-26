@@ -2,7 +2,12 @@
 import { useState, useEffect } from 'react'
 import BottomNav from '@/components/BottomNav'
 import BocoCard from '@/components/BocoCard'
-import { getProfile, getTodayMeals, saveExerciseLog, getTodayDate } from '@/utils/storage'
+import {
+  getProfile, getTodayMeals, saveExerciseLog, getTodayDate,
+  getTodayExerciseSessions, addExerciseSession, removeExerciseSession,
+} from '@/utils/storage'
+import type { ExerciseSession } from '@/utils/storage'
+import { EXERCISE_TYPES, calcBurnedKcal, stepsToKcal } from '@/utils/met'
 import { calcBocoStatus, formatDate, STATUS_DIRECTION } from '@/utils/boco'
 import type { BocoStatus } from '@/utils/boco'
 import { getRecommended, getExerciseDetail, PREFERRED_EXERCISES } from '@/constants/exercises'
@@ -27,6 +32,14 @@ export default function ExercisePage() {
   const [preferred, setPreferred] = useState<string[]>([])
   const [profileDone, setProfileDone] = useState(false)
 
+  // 운동 기록
+  const [sessions, setSessions] = useState<ExerciseSession[]>([])
+  const [weight, setWeight] = useState(70)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [selectedType, setSelectedType] = useState('')
+  const [durationInput, setDurationInput] = useState('')
+  const [stepsInput, setStepsInput] = useState('')
+
   // 기본 추천 완료
   const [defaultDone, setDefaultDone] = useState(false)
 
@@ -48,12 +61,58 @@ export default function ExercisePage() {
     setTargetKcal(profile?.targetKcal ?? 0)
     setPreferred(profile?.preferredExercises ?? [])
     setProfileDone(!!profile?.profileDone)
+    setWeight(profile?.weight ?? 70)
+    const todaySessions = getTodayExerciseSessions()
+    setSessions(todaySessions)
+    const burned = todaySessions.reduce((s, e) => s + e.burnedKcal, 0)
     if (profile?.profileDone) {
-      setStatus(calcBocoStatus(total, profile.targetKcal))
+      setStatus(calcBocoStatus(total - burned, profile.targetKcal))
     }
   }, [])
 
   if (!mounted) return null
+
+  const burnedKcal = sessions.reduce((s, e) => s + e.burnedKcal, 0)
+
+  function handleAddSession() {
+    const ex = EXERCISE_TYPES.find(e => e.name === selectedType)
+    if (!ex) return
+    let burned = 0
+    if (ex.unit === 'steps') {
+      const steps = parseInt(stepsInput)
+      if (!steps || steps <= 0) return
+      burned = stepsToKcal(steps, weight)
+    } else {
+      const dur = parseInt(durationInput)
+      if (!dur || dur <= 0) return
+      burned = calcBurnedKcal(selectedType, weight, dur)
+    }
+    const session: ExerciseSession = {
+      id: Date.now().toString(),
+      date: getTodayDate(),
+      type: selectedType,
+      durationMin: ex.unit === 'time' ? parseInt(durationInput) : undefined,
+      steps: ex.unit === 'steps' ? parseInt(stepsInput) : undefined,
+      burnedKcal: burned,
+    }
+    addExerciseSession(session)
+    const next = [...sessions, session]
+    setSessions(next)
+    const newBurned = next.reduce((s, e) => s + e.burnedKcal, 0)
+    if (profileDone) setStatus(calcBocoStatus(totalKcal - newBurned, targetKcal))
+    setSelectedType('')
+    setDurationInput('')
+    setStepsInput('')
+    setShowAddForm(false)
+  }
+
+  function handleRemoveSession(id: string) {
+    removeExerciseSession(id)
+    const next = sessions.filter(s => s.id !== id)
+    setSessions(next)
+    const newBurned = next.reduce((s, e) => s + e.burnedKcal, 0)
+    if (profileDone) setStatus(calcBocoStatus(totalKcal - newBurned, targetKcal))
+  }
 
   const recommendedSets = status !== 'empty'
     ? getRecommended(status, preferred)
@@ -78,6 +137,94 @@ export default function ExercisePage() {
         <div className="text-[12px] font-bold text-gray-mid mb-1">{formatDate()}</div>
         <div className="text-[22px] font-black text-dark tracking-tight mb-4">오늘 어떻게 할까요?</div>
         <BocoCard totalKcal={totalKcal} targetKcal={targetKcal} status={status} mini />
+      </div>
+
+      {/* ── 오늘 한 운동 기록 ── */}
+      <div className="mx-4 mt-3 bg-white rounded-[20px] p-4 border border-gray-light/50">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="text-[10px] font-bold text-gray-mid tracking-widest uppercase">오늘 한 운동</div>
+            {burnedKcal > 0 && (
+              <div className="text-[13px] font-black text-dark mt-0.5">
+                총 <span className="text-lime">-{burnedKcal.toLocaleString()} kcal</span> 소모
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setShowAddForm(v => !v)}
+            className="w-8 h-8 rounded-[10px] bg-dark flex items-center justify-center"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 2v10M2 7h10" stroke="#C5E63A" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        {sessions.length === 0 && !showAddForm && (
+          <p className="text-[12px] text-gray-mid">오늘 한 운동을 기록하면 나침반이 바뀌어요</p>
+        )}
+
+        {sessions.map(s => (
+          <div key={s.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+            <div>
+              <span className="text-[13px] font-bold text-dark">{s.type}</span>
+              <span className="text-[12px] text-gray-mid ml-2">
+                {s.steps ? `${s.steps.toLocaleString()}보` : `${s.durationMin}분`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-black text-lime">-{s.burnedKcal} kcal</span>
+              <button onClick={() => handleRemoveSession(s.id)} className="text-gray-mid text-sm">✕</button>
+            </div>
+          </div>
+        ))}
+
+        {showAddForm && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            {/* 종목 칩 */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {EXERCISE_TYPES.map(ex => (
+                <button
+                  key={ex.name}
+                  onClick={() => { setSelectedType(ex.name); setDurationInput(''); setStepsInput('') }}
+                  className={`px-3 py-1.5 rounded-full text-[12px] font-black border transition-colors ${
+                    selectedType === ex.name
+                      ? 'bg-dark text-lime border-dark'
+                      : 'bg-gray-50 text-gray-mid border-gray-light'
+                  }`}
+                >
+                  {ex.name}
+                </button>
+              ))}
+            </div>
+
+            {selectedType && (
+              <div className="flex gap-2">
+                {EXERCISE_TYPES.find(e => e.name === selectedType)?.unit === 'steps' ? (
+                  <input
+                    type="number"
+                    value={stepsInput}
+                    onChange={e => setStepsInput(e.target.value)}
+                    placeholder="걸음수 입력"
+                    className="flex-1 bg-gray-50 rounded-[10px] px-3 py-2.5 text-[13px] text-dark outline-none font-sans"
+                  />
+                ) : (
+                  <input
+                    type="number"
+                    value={durationInput}
+                    onChange={e => setDurationInput(e.target.value)}
+                    placeholder="몇 분 했나요?"
+                    className="flex-1 bg-gray-50 rounded-[10px] px-3 py-2.5 text-[13px] text-dark outline-none font-sans"
+                  />
+                )}
+                <button
+                  onClick={handleAddSession}
+                  className="bg-dark text-lime font-black text-[13px] px-4 rounded-[10px]"
+                >기록</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── BOCO 기본 추천 (즉시 노출) ── */}
