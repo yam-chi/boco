@@ -9,6 +9,8 @@ import InfoNudgeSheet from '@/components/InfoNudgeSheet'
 import { getProfile, getTodayMeals, upsertMeal, isSplashSeen, markSplashSeen, getTodayDate, getTodayBurnedKcal } from '@/utils/storage'
 import type { Meal, MealItem } from '@/utils/storage'
 import { calcBocoStatus, getGreeting, formatDate } from '@/utils/boco'
+import { calcForecast } from '@/utils/forecast'
+import type { Forecast } from '@/utils/forecast'
 
 export default function HomePage() {
   const router = useRouter()
@@ -69,6 +71,7 @@ export default function HomePage() {
   const burnedKcal = getTodayBurnedKcal()
   const status = profileDone ? calcBocoStatus(totalKcal - burnedKcal, targetKcal) : 'empty'
   const diff = totalKcal - targetKcal
+  const forecast = profileDone ? calcForecast(targetKcal) : null
 
   return (
     <div className="flex flex-col min-h-screen bg-app-bg pb-[72px]">
@@ -124,6 +127,9 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Forecast card */}
+      {forecast && <ForecastCard forecast={forecast} />}
+
       {/* Meal cards */}
       <MealCardRow meals={meals} onAdd={setModalType} />
 
@@ -175,6 +181,48 @@ function SplashScreen({ onStart }: { onStart: () => void }) {
           시작하기
         </button>
         <p className="text-[11px] text-dark/35 text-center">시작하면 이용약관 및 개인정보처리방침에 동의하게 됩니다</p>
+      </div>
+    </div>
+  )
+}
+
+function ForecastCard({ forecast }: { forecast: Forecast }) {
+  const { weightChange30, avgDailyDiff, datadays, direction } = forecast
+  const isGain = weightChange30 > 0
+  const abs = Math.abs(weightChange30)
+  const sign = isGain ? '+' : '-'
+  const color = direction === 'stable' ? 'text-lime' : isGain ? 'text-orange' : 'text-lime'
+  const barPct = Math.min(Math.abs(avgDailyDiff) / 500 * 100, 100)
+
+  return (
+    <div className="mx-4 mt-3 bg-white rounded-[20px] p-4 border border-gray-light/50">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className="text-[10px] font-bold text-gray-mid tracking-widest uppercase">이 페이스라면</div>
+          <div className="text-[18px] font-black text-dark mt-0.5 leading-tight">
+            30일 후{' '}
+            <span className={color}>
+              {direction === 'stable' ? '체중 유지' : `${sign}${abs.toFixed(1)}kg`}
+            </span>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] text-gray-mid">7일 기준</div>
+          <div className="text-[12px] font-black text-dark mt-0.5">{datadays}일 데이터</div>
+        </div>
+      </div>
+
+      <div className="relative h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
+        <div
+          className={`h-full rounded-full transition-all ${isGain ? 'bg-orange' : 'bg-lime'}`}
+          style={{ width: `${barPct}%` }}
+        />
+      </div>
+
+      <div className="text-[11px] text-gray-mid leading-snug">
+        {direction === 'stable' && '목표 칼로리와 거의 일치해요. 완벽한 페이스예요!'}
+        {direction === 'up' && `하루 평균 ${Math.round(Math.abs(avgDailyDiff))}kcal 초과 중이에요. 운동을 추가하면 방향이 바뀌어요.`}
+        {direction === 'down' && `하루 평균 ${Math.round(Math.abs(avgDailyDiff))}kcal 부족 중이에요. 이 페이스면 체중이 줄어요.`}
       </div>
     </div>
   )

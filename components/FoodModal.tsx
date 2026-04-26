@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { FOODS } from '@/constants/foods'
 import type { MealItem } from '@/utils/storage'
 
 interface Props {
@@ -8,6 +7,12 @@ interface Props {
   existing: MealItem[]
   onSave: (items: MealItem[]) => void
   onClose: () => void
+}
+
+interface FoodResult {
+  name: string
+  kcal: number
+  serving: string
 }
 
 const LABELS = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식' }
@@ -18,20 +23,31 @@ export default function FoodModal({ mealType, existing, onSave, onClose }: Props
   const [selected, setSelected] = useState<MealItem[]>(existing)
   const [manualName, setManualName] = useState('')
   const [manualKcal, setManualKcal] = useState('')
+  const [results, setResults] = useState<FoodResult[]>([])
+  const [loading, setLoading] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const [filtered, setFiltered] = useState(FOODS)
 
   useEffect(() => {
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      setFiltered(query ? FOODS.filter(f => f.name.includes(query)) : FOODS)
-    }, 300)
+    if (!query.trim()) { setResults([]); return }
+    setLoading(true)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/foods?q=${encodeURIComponent(query.trim())}`)
+        const data: FoodResult[] = await res.json()
+        setResults(data)
+      } catch {
+        setResults([])
+      } finally {
+        setLoading(false)
+      }
+    }, 400)
     return () => clearTimeout(debounceRef.current)
   }, [query])
 
   const totalKcal = selected.reduce((s, i) => s + i.kcal, 0)
 
-  function addFood(food: { name: string; kcal: number }) {
+  function addFood(food: FoodResult) {
     if (selected.find(s => s.name === food.name)) return
     setSelected(prev => [...prev, { name: food.name, kcal: food.kcal }])
   }
@@ -83,10 +99,23 @@ export default function FoodModal({ mealType, existing, onSave, onClose }: Props
                   placeholder="음식 이름을 검색하세요"
                   className="flex-1 bg-transparent text-[14px] text-dark placeholder:text-gray-mid outline-none font-sans"
                 />
+                {loading && <LoadingSpinner />}
               </div>
+
               {/* Food list */}
               <div className="flex-1 overflow-y-auto px-5">
-                {filtered.map(food => (
+                {!query.trim() && (
+                  <p className="text-[13px] text-gray-mid text-center py-8">
+                    식품명을 입력하면<br />식약처 DB에서 검색해요
+                  </p>
+                )}
+                {query.trim() && !loading && results.length === 0 && (
+                  <p className="text-[13px] text-gray-mid text-center py-8">
+                    검색 결과가 없어요<br />
+                    <span className="text-[12px]">직접 입력 탭을 이용해보세요</span>
+                  </p>
+                )}
+                {results.map(food => (
                   <button
                     key={food.name}
                     onClick={() => addFood(food)}
@@ -94,9 +123,11 @@ export default function FoodModal({ mealType, existing, onSave, onClose }: Props
                   >
                     <div>
                       <div className="text-[14px] font-bold text-dark">{food.name}</div>
-                      <div className="text-[12px] text-gray-mid">{food.kcal} kcal</div>
+                      <div className="text-[12px] text-gray-mid">{food.kcal} kcal · {food.serving}</div>
                     </div>
-                    <span className="text-[20px] text-lime font-black">+</span>
+                    <span className={`text-[20px] font-black ${selected.find(s => s.name === food.name) ? 'text-lime' : 'text-gray-light'}`}>
+                      {selected.find(s => s.name === food.name) ? '✓' : '+'}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -164,6 +195,15 @@ function SearchIcon() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <circle cx="7" cy="7" r="5" stroke="#888" strokeWidth="1.5" />
       <path d="M11 11l3 3" stroke="#888" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function LoadingSpinner() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="animate-spin">
+      <circle cx="8" cy="8" r="6" stroke="#DDD" strokeWidth="2" />
+      <path d="M8 2a6 6 0 016 6" stroke="#888" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }
