@@ -10,6 +10,7 @@ interface Props {
 }
 
 interface FoodResult {
+  id: string
   name: string
   kcal: number
   serving: string
@@ -117,7 +118,7 @@ export default function FoodModal({ mealType, existing, onSave, onClose }: Props
                 )}
                 {results.map(food => (
                   <button
-                    key={food.name}
+                    key={food.id}
                     onClick={() => addFood(food)}
                     className="w-full flex justify-between items-center py-3 border-b border-gray-50 text-left"
                   >

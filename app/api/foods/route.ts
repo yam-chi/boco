@@ -20,11 +20,19 @@ export async function GET(req: NextRequest) {
 
     if (data.header?.resultCode !== '00') return NextResponse.json([])
 
-    const items = (data.body?.items ?? []).map((item: Record<string, string>) => ({
-      name: item.FOOD_NM_KR,
-      kcal: Math.round(parseFloat(item.AMT_NUM1) || 0),
-      serving: item.SERVING_SIZE || '100g',
-    }))
+    const seen = new Set<string>()
+    const items = (data.body?.items ?? [])
+      .map((item: Record<string, string>) => ({
+        id: item.FOOD_CD,
+        name: item.FOOD_NM_KR,
+        kcal: Math.round(parseFloat(item.AMT_NUM1) || 0),
+        serving: item.SERVING_SIZE || '100g',
+      }))
+      .filter((item: { id: string; name: string; kcal: number; serving: string }) => {
+        if (seen.has(item.name)) return false
+        seen.add(item.name)
+        return true
+      })
 
     return NextResponse.json(items)
   } catch {
