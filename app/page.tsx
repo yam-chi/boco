@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import BottomNav from '@/components/BottomNav'
 import BocoCard from '@/components/BocoCard'
@@ -22,6 +22,13 @@ export default function HomePage() {
   const [modalType, setModalType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack' | null>(null)
   const [nudge, setNudge] = useState<{ name: string; kcal: number } | null>(null)
 
+  // 인라인 입력
+  type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+  const [inlineText, setInlineText] = useState('')
+  const [inlineMeal, setInlineMeal] = useState<MealType>(detectMealByTime())
+  const [inlineLoading, setInlineLoading] = useState(false)
+  const cameraRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     setMounted(true)
     if (!isSplashSeen()) {
@@ -42,6 +49,51 @@ export default function HomePage() {
     markSplashSeen()
     setShowSplash(false)
     loadData()
+  }
+
+  async function handleInlineSubmit(text?: string, imageData?: { base64: string; mediaType: string }) {
+    const input = text ?? inlineText
+    if (!input.trim() && !imageData) return
+    setInlineLoading(true)
+    try {
+      const body = imageData
+        ? { image: imageData.base64, mediaType: imageData.mediaType }
+        : { text: input }
+      const res = await fetch('/api/analyze-food', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const newItems: MealItem[] = await res.json()
+      if (!newItems.length) return
+      const existing = meals.find(m => m.mealType === inlineMeal)?.items ?? []
+      const merged = [...existing, ...newItems.filter(n => !existing.find(e => e.name === n.name))]
+      const meal: Meal = {
+        id: `${inlineMeal}_${getTodayDate()}`,
+        date: getTodayDate(),
+        mealType: inlineMeal,
+        items: merged,
+        totalKcal: merged.reduce((s, i) => s + i.kcal, 0),
+      }
+      upsertMeal(meal)
+      setMeals(getTodayMeals())
+      setInlineText('')
+    } finally {
+      setInlineLoading(false)
+    }
+  }
+
+  async function handleCameraChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async ev => {
+      const dataUrl = ev.target?.result as string
+      const base64 = dataUrl.split(',')[1]
+      await handleInlineSubmit(undefined, { base64, mediaType: file.type })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
   }
 
   function handleSaveMeal(items: MealItem[]) {
@@ -97,6 +149,60 @@ export default function HomePage() {
         onClick={profileDone ? () => router.push('/exercise') : () => router.push('/profile')}
       />
 
+      {/* 인라인 입력창 */}
+      <div className="mx-4 mt-3">
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleCameraChange} className="hidden" />
+        <div className="bg-white rounded-[18px] border border-gray-light/60 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3">
+            <input
+              value={inlineText}
+              onChange={e => setInlineText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleInlineSubmit() }}
+              placeholder="뭐 드셨어요? 자유롭게 입력하세요"
+              className="flex-1 text-[14px] text-dark placeholder:text-gray-mid outline-none bg-transparent font-sans"
+            />
+            <button
+              onClick={() => cameraRef.current?.click()}
+              className="w-8 h-8 rounded-[10px] bg-gray-50 flex items-center justify-center flex-shrink-0"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="1" y="4" width="14" height="10" rx="2" stroke="#888" strokeWidth="1.4"/>
+                <circle cx="8" cy="9" r="2.5" stroke="#888" strokeWidth="1.4"/>
+                <path d="M5.5 4L6.5 2h3l1 2" stroke="#888" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => handleInlineSubmit()}
+              disabled={inlineLoading || !inlineText.trim()}
+              className="w-8 h-8 rounded-[10px] bg-dark flex items-center justify-center flex-shrink-0 disabled:opacity-30"
+            >
+              {inlineLoading
+                ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="animate-spin"><circle cx="7" cy="7" r="5" stroke="rgba(255,255,255,0.3)" strokeWidth="2"/><path d="M7 2a5 5 0 015 5" stroke="#C5E63A" strokeWidth="2" strokeLinecap="round"/></svg>
+                : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="#C5E63A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              }
+            </button>
+          </div>
+          {/* 끼니 선택 탭 */}
+          <div className="flex border-t border-gray-100">
+            {(['breakfast','lunch','dinner','snack'] as const).map((m, i) => {
+              const labels = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식' }
+              const active = inlineMeal === m
+              return (
+                <button
+                  key={m}
+                  onClick={() => setInlineMeal(m)}
+                  className={`flex-1 py-2.5 text-[12px] font-black transition-colors ${
+                    active ? 'bg-dark text-lime' : 'text-gray-mid'
+                  } ${i > 0 ? 'border-l border-gray-100' : ''}`}
+                >
+                  {labels[m]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
       {/* Food illustration — only when no profile */}
       {!profileDone && (
         <div className="mx-4 mt-4 bg-white rounded-[20px] p-5 flex items-center gap-4">
@@ -131,7 +237,7 @@ export default function HomePage() {
       {forecast && <ForecastCard forecast={forecast} />}
 
       {/* Meal cards */}
-      <MealCardRow meals={meals} onAdd={setModalType} />
+      <MealCardRow meals={meals} status={status} onAdd={setModalType} />
 
       {/* Food Modal */}
       {modalType && (
@@ -155,6 +261,14 @@ export default function HomePage() {
       <BottomNav />
     </div>
   )
+}
+
+function detectMealByTime(): 'breakfast' | 'lunch' | 'dinner' | 'snack' {
+  const h = new Date().getHours()
+  if (h >= 5  && h < 11) return 'breakfast'
+  if (h >= 11 && h < 15) return 'lunch'
+  if (h >= 15 && h < 21) return 'dinner'
+  return 'snack'
 }
 
 function SplashScreen({ onStart }: { onStart: () => void }) {
