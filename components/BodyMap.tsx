@@ -17,201 +17,108 @@ export function getMuscleIntensity(sessions: ExerciseSession[], muscle: string):
   return 3
 }
 
-function mColor(intensity: number): string {
-  const colors = [
-    'rgba(255,255,255,0.07)',
-    'rgba(197,230,58,0.30)',
-    'rgba(197,230,58,0.60)',
-    'rgba(197,230,58,0.88)',
-  ]
-  return colors[Math.min(intensity, 3)]
-}
-
-function mStroke(intensity: number): string {
-  return intensity > 0 ? 'rgba(197,230,58,0.4)' : 'rgba(255,255,255,0.1)'
+function alpha(intensity: number): number {
+  return [0, 0.38, 0.65, 0.88][Math.min(intensity, 3)]
 }
 
 interface Props { sessions: ExerciseSession[] }
 
-export function BodyMapFront({ sessions }: Props) {
-  const c = (muscle: string) => mColor(getMuscleIntensity(sessions, muscle))
-  const s = (muscle: string) => mStroke(getMuscleIntensity(sessions, muscle))
+// 이미지 좌표 (viewBox 0 0 100 100 기준, 이미지는 정사각형 1080x1080)
+// 전면(front): x 8~43%, y 5~87%
+// 후면(back):  x 55~92%, y 5~87%
+
+export default function BodyMapOverlay({ sessions }: Props) {
+  const f = (muscle: string) => {
+    const a = alpha(getMuscleIntensity(sessions, muscle))
+    return `rgba(197,230,58,${a})`
+  }
 
   return (
-    <svg viewBox="0 0 100 252" width="100" height="252" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* ── Head ── */}
-      <ellipse cx="50" cy="14" rx="12" ry="13" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.8"/>
+    <div className="relative w-full rounded-[16px] overflow-hidden">
+      <img
+        src="/body-map.png"
+        alt="body map"
+        className="w-full block"
+        style={{ filter: 'invert(1) brightness(0.82)' }}
+        draggable={false}
+      />
+      <svg
+        className="absolute inset-0 w-full h-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="xMidYMid meet"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* ─── 전면 (Front) ─── */}
 
-      {/* ── Neck ── */}
-      <path d="M44 26 Q44 37 44 38 L56 38 Q56 37 56 26 Z" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.08)" strokeWidth="0.7"/>
+        {/* 어깨 */}
+        <ellipse cx="14.5" cy="24" rx="4.5" ry="5" fill={f('shoulders')} />
+        <ellipse cx="35.5" cy="24" rx="4.5" ry="5" fill={f('shoulders')} />
 
-      {/* ── Left Shoulder (deltoid) ── */}
-      <path d="M30 42 Q18 42 12 52 Q9 60 13 68 Q20 64 28 66 L32 54 Z"
-        fill={c('shoulders')} stroke={s('shoulders')} strokeWidth="0.8"/>
-      {/* ── Right Shoulder ── */}
-      <path d="M70 42 Q82 42 88 52 Q91 60 87 68 Q80 64 72 66 L68 54 Z"
-        fill={c('shoulders')} stroke={s('shoulders')} strokeWidth="0.8"/>
+        {/* 가슴 */}
+        <ellipse cx="22" cy="28" rx="5" ry="5.5" fill={f('chest')} />
+        <ellipse cx="28" cy="28" rx="5" ry="5.5" fill={f('chest')} />
 
-      {/* ── Chest left pec ── */}
-      <path d="M32 44 Q42 40 50 41 L50 66 Q42 70 34 68 Q29 62 32 54 Z"
-        fill={c('chest')} stroke={s('chest')} strokeWidth="0.8"/>
-      {/* ── Chest right pec ── */}
-      <path d="M68 44 Q58 40 50 41 L50 66 Q58 70 66 68 Q71 62 68 54 Z"
-        fill={c('chest')} stroke={s('chest')} strokeWidth="0.8"/>
+        {/* 이두 */}
+        <ellipse cx="12.5" cy="34" rx="3.5" ry="7" fill={f('biceps')} />
+        <ellipse cx="37.5" cy="34" rx="3.5" ry="7" fill={f('biceps')} />
 
-      {/* ── Left Bicep ── */}
-      <path d="M10 54 Q5 64 7 80 Q11 86 21 84 Q26 74 24 58 Q18 50 10 54 Z"
-        fill={c('biceps')} stroke={s('biceps')} strokeWidth="0.8"/>
-      {/* ── Right Bicep ── */}
-      <path d="M90 54 Q95 64 93 80 Q89 86 79 84 Q74 74 76 58 Q82 50 90 54 Z"
-        fill={c('biceps')} stroke={s('biceps')} strokeWidth="0.8"/>
+        {/* 전완 */}
+        <ellipse cx="11" cy="47" rx="3" ry="6.5" fill={f('forearms')} />
+        <ellipse cx="39" cy="47" rx="3" ry="6.5" fill={f('forearms')} />
 
-      {/* ── Left Forearm ── */}
-      <path d="M8 84 Q4 96 6 116 Q10 122 20 120 Q24 110 22 84 Q15 80 8 84 Z"
-        fill={c('forearms')} stroke={s('forearms')} strokeWidth="0.8"/>
-      {/* ── Right Forearm ── */}
-      <path d="M92 84 Q96 96 94 116 Q90 122 80 120 Q76 110 78 84 Q85 80 92 84 Z"
-        fill={c('forearms')} stroke={s('forearms')} strokeWidth="0.8"/>
+        {/* 복근 */}
+        <rect x="21.5" y="35" width="4.5" height="5" rx="1.5" fill={f('abs')} />
+        <rect x="27" y="35" width="4.5" height="5" rx="1.5" fill={f('abs')} />
+        <rect x="21.5" y="41.5" width="4.5" height="5" rx="1.5" fill={f('abs')} />
+        <rect x="27" y="41.5" width="4.5" height="5" rx="1.5" fill={f('abs')} />
+        <rect x="22" y="48" width="4" height="4.5" rx="1.5" fill={f('abs')} />
+        <rect x="27" y="48" width="4" height="4.5" rx="1.5" fill={f('abs')} />
 
-      {/* ── Abs (6-pack) ── */}
-      {/* top row */}
-      <rect x="35" y="68" width="13" height="11" rx="3"
-        fill={c('abs')} stroke={s('abs')} strokeWidth="0.8"/>
-      <rect x="52" y="68" width="13" height="11" rx="3"
-        fill={c('abs')} stroke={s('abs')} strokeWidth="0.8"/>
-      {/* mid row */}
-      <rect x="35" y="81" width="13" height="11" rx="3"
-        fill={c('abs')} stroke={s('abs')} strokeWidth="0.8"/>
-      <rect x="52" y="81" width="13" height="11" rx="3"
-        fill={c('abs')} stroke={s('abs')} strokeWidth="0.8"/>
-      {/* lower row */}
-      <rect x="36" y="94" width="12" height="10" rx="3"
-        fill={c('abs')} stroke={s('abs')} strokeWidth="0.8"/>
-      <rect x="52" y="94" width="12" height="10" rx="3"
-        fill={c('abs')} stroke={s('abs')} strokeWidth="0.8"/>
+        {/* 대퇴사두 */}
+        <ellipse cx="22" cy="67" rx="4" ry="8" fill={f('quads')} />
+        <ellipse cx="28" cy="67" rx="4" ry="8" fill={f('quads')} />
 
-      {/* ── Hips ── */}
-      <path d="M30 110 Q24 118 26 128 L74 128 Q76 118 70 110 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
+        {/* 종아리 */}
+        <ellipse cx="22" cy="81" rx="3" ry="5" fill={f('calves')} />
+        <ellipse cx="28" cy="81" rx="3" ry="5" fill={f('calves')} />
 
-      {/* ── Left Quad ── */}
-      <path d="M26 128 Q20 148 22 174 Q28 180 46 178 Q52 160 50 128 Z"
-        fill={c('quads')} stroke={s('quads')} strokeWidth="0.8"/>
-      {/* ── Right Quad ── */}
-      <path d="M74 128 Q80 148 78 174 Q72 180 54 178 Q48 160 50 128 Z"
-        fill={c('quads')} stroke={s('quads')} strokeWidth="0.8"/>
+        {/* ─── 후면 (Back) ─── */}
 
-      {/* ── Knees ── */}
-      <path d="M22 174 Q20 184 23 192 Q30 196 46 194 Q50 186 50 178 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
-      <path d="M78 174 Q80 184 77 192 Q70 196 54 194 Q50 186 50 178 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
+        {/* 승모근 / 상부등 */}
+        <ellipse cx="73.5" cy="22" rx="8" ry="5.5" fill={f('upper_back')} />
 
-      {/* ── Left Calf ── */}
-      <path d="M23 192 Q18 206 22 224 Q28 230 44 228 Q48 218 48 194 Z"
-        fill={c('calves')} stroke={s('calves')} strokeWidth="0.8"/>
-      {/* ── Right Calf ── */}
-      <path d="M77 192 Q82 206 78 224 Q72 230 56 228 Q52 218 52 194 Z"
-        fill={c('calves')} stroke={s('calves')} strokeWidth="0.8"/>
+        {/* 어깨 후면 */}
+        <ellipse cx="63" cy="24" rx="4.5" ry="5" fill={f('shoulders')} />
+        <ellipse cx="84" cy="24" rx="4.5" ry="5" fill={f('shoulders')} />
 
-      {/* ── Feet ── */}
-      <path d="M20 224 Q16 232 20 238 L46 238 Q50 234 48 228 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
-      <path d="M80 224 Q84 232 80 238 L54 238 Q50 234 52 228 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
+        {/* 삼두 */}
+        <ellipse cx="61.5" cy="34" rx="3.5" ry="7" fill={f('triceps')} />
+        <ellipse cx="85.5" cy="34" rx="3.5" ry="7" fill={f('triceps')} />
 
-      {/* Label */}
-      <text x="50" y="250" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="7" fontFamily="sans-serif">전면</text>
-    </svg>
-  )
-}
+        {/* 전완 후면 */}
+        <ellipse cx="60" cy="47" rx="3" ry="6.5" fill={f('forearms')} />
+        <ellipse cx="87" cy="47" rx="3" ry="6.5" fill={f('forearms')} />
 
-export function BodyMapBack({ sessions }: Props) {
-  const c = (muscle: string) => mColor(getMuscleIntensity(sessions, muscle))
-  const s = (muscle: string) => mStroke(getMuscleIntensity(sessions, muscle))
+        {/* 광배근 */}
+        <ellipse cx="64" cy="38" rx="4" ry="9" fill={f('lats')} />
+        <ellipse cx="83" cy="38" rx="4" ry="9" fill={f('lats')} />
 
-  return (
-    <svg viewBox="0 0 100 252" width="100" height="252" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* ── Head ── */}
-      <ellipse cx="50" cy="14" rx="12" ry="13" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.8"/>
+        {/* 허리 (척추기립근) */}
+        <rect x="70.5" y="42" width="3" height="9" rx="1.5" fill={f('lower_back')} />
+        <rect x="74.5" y="42" width="3" height="9" rx="1.5" fill={f('lower_back')} />
 
-      {/* ── Neck ── */}
-      <path d="M44 26 Q44 37 44 38 L56 38 Q56 37 56 26 Z" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.08)" strokeWidth="0.7"/>
+        {/* 둔근 */}
+        <ellipse cx="70.5" cy="58" rx="5.5" ry="5" fill={f('glutes')} />
+        <ellipse cx="76.5" cy="58" rx="5.5" ry="5" fill={f('glutes')} />
 
-      {/* ── Trapezius ── */}
-      <path d="M44 28 Q50 24 56 28 L68 44 Q58 48 50 46 Q42 48 32 44 Z"
-        fill={c('upper_back')} stroke={s('upper_back')} strokeWidth="0.8"/>
+        {/* 햄스트링 */}
+        <ellipse cx="70" cy="68.5" rx="4" ry="8" fill={f('hamstrings')} />
+        <ellipse cx="77" cy="68.5" rx="4" ry="8" fill={f('hamstrings')} />
 
-      {/* ── Left Rear Delt ── */}
-      <path d="M30 42 Q18 42 12 52 Q9 60 13 68 Q20 64 28 66 L32 54 Z"
-        fill={c('shoulders')} stroke={s('shoulders')} strokeWidth="0.8"/>
-      {/* ── Right Rear Delt ── */}
-      <path d="M70 42 Q82 42 88 52 Q91 60 87 68 Q80 64 72 66 L68 54 Z"
-        fill={c('shoulders')} stroke={s('shoulders')} strokeWidth="0.8"/>
-
-      {/* ── Left Lat ── */}
-      <path d="M32 52 Q22 66 24 90 Q28 100 36 102 L38 70 Z"
-        fill={c('lats')} stroke={s('lats')} strokeWidth="0.8"/>
-      {/* ── Right Lat ── */}
-      <path d="M68 52 Q78 66 76 90 Q72 100 64 102 L62 70 Z"
-        fill={c('lats')} stroke={s('lats')} strokeWidth="0.8"/>
-
-      {/* ── Upper back (rhomboids) ── */}
-      <path d="M34 48 Q42 44 50 44 Q58 44 66 48 L64 74 Q58 78 50 78 Q42 78 36 74 Z"
-        fill={c('upper_back')} stroke={s('upper_back')} strokeWidth="0.8"/>
-
-      {/* ── Left Tricep ── */}
-      <path d="M10 54 Q5 64 7 80 Q11 86 21 84 Q26 74 24 58 Q18 50 10 54 Z"
-        fill={c('triceps')} stroke={s('triceps')} strokeWidth="0.8"/>
-      {/* ── Right Tricep ── */}
-      <path d="M90 54 Q95 64 93 80 Q89 86 79 84 Q74 74 76 58 Q82 50 90 54 Z"
-        fill={c('triceps')} stroke={s('triceps')} strokeWidth="0.8"/>
-
-      {/* ── Left Forearm ── */}
-      <path d="M8 84 Q4 96 6 116 Q10 122 20 120 Q24 110 22 84 Q15 80 8 84 Z"
-        fill={c('forearms')} stroke={s('forearms')} strokeWidth="0.8"/>
-      {/* ── Right Forearm ── */}
-      <path d="M92 84 Q96 96 94 116 Q90 122 80 120 Q76 110 78 84 Q85 80 92 84 Z"
-        fill={c('forearms')} stroke={s('forearms')} strokeWidth="0.8"/>
-
-      {/* ── Lower back (erectors) ── */}
-      <rect x="37" y="80" width="10" height="26" rx="4"
-        fill={c('lower_back')} stroke={s('lower_back')} strokeWidth="0.8"/>
-      <rect x="53" y="80" width="10" height="26" rx="4"
-        fill={c('lower_back')} stroke={s('lower_back')} strokeWidth="0.8"/>
-
-      {/* ── Glutes ── */}
-      <path d="M28 110 Q22 120 24 134 Q34 140 50 138 Q66 140 76 134 Q78 120 72 110 Z"
-        fill={c('glutes')} stroke={s('glutes')} strokeWidth="0.8"/>
-
-      {/* ── Left Hamstring ── */}
-      <path d="M26 136 Q18 156 20 176 Q26 182 46 180 Q52 162 50 136 Z"
-        fill={c('hamstrings')} stroke={s('hamstrings')} strokeWidth="0.8"/>
-      {/* ── Right Hamstring ── */}
-      <path d="M74 136 Q82 156 80 176 Q74 182 54 180 Q48 162 50 136 Z"
-        fill={c('hamstrings')} stroke={s('hamstrings')} strokeWidth="0.8"/>
-
-      {/* ── Knees ── */}
-      <path d="M20 176 Q18 186 21 194 Q28 198 46 196 Q50 188 50 180 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
-      <path d="M80 176 Q82 186 79 194 Q72 198 54 196 Q50 188 50 180 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
-
-      {/* ── Left Calf ── */}
-      <path d="M21 194 Q16 210 20 226 Q27 232 44 230 Q48 220 48 196 Z"
-        fill={c('calves')} stroke={s('calves')} strokeWidth="0.8"/>
-      {/* ── Right Calf ── */}
-      <path d="M79 194 Q84 210 80 226 Q73 232 56 230 Q52 220 52 196 Z"
-        fill={c('calves')} stroke={s('calves')} strokeWidth="0.8"/>
-
-      {/* ── Feet ── */}
-      <path d="M18 226 Q14 234 18 240 L46 240 Q50 236 48 230 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
-      <path d="M82 226 Q86 234 82 240 L54 240 Q50 236 52 230 Z"
-        fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.7"/>
-
-      {/* Label */}
-      <text x="50" y="250" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="7" fontFamily="sans-serif">후면</text>
-    </svg>
+        {/* 종아리 후면 */}
+        <ellipse cx="70" cy="81" rx="3" ry="5" fill={f('calves')} />
+        <ellipse cx="77" cy="81" rx="3" ry="5" fill={f('calves')} />
+      </svg>
+    </div>
   )
 }

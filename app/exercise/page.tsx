@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import BottomNav from '@/components/BottomNav'
-import { BodyMapFront, BodyMapBack, MUSCLE_LABELS } from '@/components/BodyMap'
+import BodyMapOverlay, { MUSCLE_LABELS } from '@/components/BodyMap'
 import {
   getProfile, getTodayDate, getTodayExerciseSessions,
   addExerciseSession, removeExerciseSession,
@@ -90,10 +90,7 @@ export default function ExercisePage() {
       {/* Body Map */}
       <div className="mx-4 bg-white/4 rounded-[24px] p-4">
         <div className="text-[11px] font-bold text-white/30 mb-3 tracking-wider uppercase">오늘 운동한 부위</div>
-        <div className="flex gap-2 justify-center items-start">
-          <BodyMapFront sessions={sessions} />
-          <BodyMapBack sessions={sessions} />
-        </div>
+        <BodyMapOverlay sessions={sessions} />
         {allMuscles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3">
             {allMuscles.map(m => (
