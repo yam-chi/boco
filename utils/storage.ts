@@ -19,6 +19,7 @@ export interface Meal {
   mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack'
   items: MealItem[]
   totalKcal: number
+  photoUrl?: string
 }
 
 export interface DailyLog {
@@ -38,9 +39,13 @@ export interface ExerciseSession {
   id: string
   date: string
   type: string
+  sets?: number
+  reps?: number
+  weight?: number
   durationMin?: number
   steps?: number
   burnedKcal: number
+  muscles?: string[]
 }
 
 const KEYS = {
@@ -135,4 +140,31 @@ export function markSplashSeen() {
 
 export function getTodayDate(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+export function getStreak(): number {
+  if (typeof window === 'undefined') return 0
+  const raw = localStorage.getItem('boco_streak')
+  if (!raw) return 0
+  const { streak, lastDate } = JSON.parse(raw)
+  const today = getTodayDate()
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  if (lastDate === today) return streak
+  if (lastDate === yesterday) return streak
+  return 0
+}
+
+export function updateStreak() {
+  if (typeof window === 'undefined') return
+  const today = getTodayDate()
+  const raw = localStorage.getItem('boco_streak')
+  if (raw) {
+    const { streak, lastDate } = JSON.parse(raw)
+    if (lastDate === today) return
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+    const newStreak = lastDate === yesterday ? streak + 1 : 1
+    localStorage.setItem('boco_streak', JSON.stringify({ streak: newStreak, lastDate: today }))
+  } else {
+    localStorage.setItem('boco_streak', JSON.stringify({ streak: 1, lastDate: today }))
+  }
 }

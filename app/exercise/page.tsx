@@ -1,570 +1,306 @@
 'use client'
 import { useState, useEffect } from 'react'
 import BottomNav from '@/components/BottomNav'
-import BocoCard from '@/components/BocoCard'
 import {
-  getProfile, getTodayMeals, saveExerciseLog, getTodayDate,
-  getTodayExerciseSessions, addExerciseSession, removeExerciseSession,
+  getProfile, getTodayDate, getTodayExerciseSessions,
+  addExerciseSession, removeExerciseSession,
 } from '@/utils/storage'
 import type { ExerciseSession } from '@/utils/storage'
-import { EXERCISE_TYPES, calcBurnedKcal, stepsToKcal } from '@/utils/met'
-import { calcBocoStatus, formatDate, STATUS_DIRECTION } from '@/utils/boco'
-import type { BocoStatus } from '@/utils/boco'
-import { getRecommended, getExerciseDetail, PREFERRED_EXERCISES } from '@/constants/exercises'
-import type { ExerciseItem } from '@/constants/exercises'
 
-type CardType = 'rest' | 'preferred' | 'recommended' | 'custom'
+const MUSCLE_LABELS: Record<string, string> = {
+  chest: '가슴', shoulders: '어깨', biceps: '이두', triceps: '삼두',
+  abs: '복근', quads: '대퇴사두', calves: '종아리', upper_back: '등 상부',
+  lats: '광배근', lower_back: '허리', glutes: '둔근', hamstrings: '햄스트링', forearms: '전완',
+}
 
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <circle cx="6" cy="6" r="4.5" stroke="#888" strokeWidth="1.4" />
-      <path d="M10 10l2.5 2.5" stroke="#888" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
+// muscle → intensity 0~3
+function getMuscleIntensity(sessions: ExerciseSession[], muscle: string): number {
+  let count = 0
+  sessions.forEach(s => {
+    if (s.muscles?.includes(muscle)) {
+      count += (s.sets ?? 1)
+    }
+  })
+  if (count === 0) return 0
+  if (count <= 3) return 1
+  if (count <= 6) return 2
+  return 3
+}
+
+function muscleColor(intensity: number, alpha = 1): string {
+  if (intensity === 0) return `rgba(255,255,255,0.04)`
+  const colors = ['', 'rgba(197,230,58,0.25)', 'rgba(197,230,58,0.55)', 'rgba(197,230,58,0.85)']
+  return colors[intensity]
+}
+
+function formatDateKo() {
+  const d = new Date()
+  const days = ['일', '월', '화', '수', '목', '금', '토']
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${days[d.getDay()]}요일`
 }
 
 export default function ExercisePage() {
   const [mounted, setMounted] = useState(false)
-  const [totalKcal, setTotalKcal] = useState(0)
-  const [targetKcal, setTargetKcal] = useState(0)
-  const [status, setStatus] = useState<BocoStatus>('empty')
-  const [preferred, setPreferred] = useState<string[]>([])
-  const [profileDone, setProfileDone] = useState(false)
-
-  // 운동 기록
   const [sessions, setSessions] = useState<ExerciseSession[]>([])
-  const [weight, setWeight] = useState(70)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [selectedType, setSelectedType] = useState('')
-  const [durationInput, setDurationInput] = useState('')
-  const [stepsInput, setStepsInput] = useState('')
-
-  // 기본 추천 완료
-  const [defaultDone, setDefaultDone] = useState(false)
-
-  // 다른 방식 accordion
-  const [showOtherOptions, setShowOtherOptions] = useState(false)
-  const [activeCard, setActiveCard] = useState<CardType | null>(null)
-
-  // 커스텀
-  const [customExercise, setCustomExercise] = useState('')
-  const [customList, setCustomList] = useState<string[]>([])
-  const [otherDone, setOtherDone] = useState(false)
+  const [preferred, setPreferred] = useState<string[]>([])
+  const [inputText, setInputText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [showInput, setShowInput] = useState(false)
 
   useEffect(() => {
     setMounted(true)
     const profile = getProfile()
-    const meals = getTodayMeals()
-    const total = meals.reduce((s, m) => s + m.totalKcal, 0)
-    setTotalKcal(total)
-    setTargetKcal(profile?.targetKcal ?? 0)
     setPreferred(profile?.preferredExercises ?? [])
-    setProfileDone(!!profile?.profileDone)
-    setWeight(profile?.weight ?? 70)
-    const todaySessions = getTodayExerciseSessions()
-    setSessions(todaySessions)
-    const burned = todaySessions.reduce((s, e) => s + e.burnedKcal, 0)
-    if (profile?.profileDone) {
-      setStatus(calcBocoStatus(total - burned, profile.targetKcal))
-    }
+    setSessions(getTodayExerciseSessions())
   }, [])
 
   if (!mounted) return null
 
-  const burnedKcal = sessions.reduce((s, e) => s + e.burnedKcal, 0)
+  const totalBurned = sessions.reduce((s, e) => s + e.burnedKcal, 0)
 
-  function handleAddSession() {
-    const ex = EXERCISE_TYPES.find(e => e.name === selectedType)
-    if (!ex) return
-    let burned = 0
-    if (ex.unit === 'steps') {
-      const steps = parseInt(stepsInput)
-      if (!steps || steps <= 0) return
-      burned = stepsToKcal(steps, weight)
-    } else {
-      const dur = parseInt(durationInput)
-      if (!dur || dur <= 0) return
-      burned = calcBurnedKcal(selectedType, weight, dur)
+  // all muscles worked today
+  const allMuscles = Array.from(new Set(sessions.flatMap(s => s.muscles ?? [])))
+
+  async function handleSubmit() {
+    if (!inputText.trim()) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/analyze-exercise', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: inputText }),
+      })
+      const items: Omit<ExerciseSession, 'id' | 'date'>[] = await res.json()
+      for (const item of items) {
+        const session: ExerciseSession = {
+          ...item,
+          id: `${Date.now()}_${Math.random()}`,
+          date: getTodayDate(),
+        }
+        addExerciseSession(session)
+      }
+      setSessions(getTodayExerciseSessions())
+      setInputText('')
+      setShowInput(false)
+    } finally {
+      setLoading(false)
     }
-    const session: ExerciseSession = {
-      id: Date.now().toString(),
-      date: getTodayDate(),
-      type: selectedType,
-      durationMin: ex.unit === 'time' ? parseInt(durationInput) : undefined,
-      steps: ex.unit === 'steps' ? parseInt(stepsInput) : undefined,
-      burnedKcal: burned,
-    }
-    addExerciseSession(session)
-    const next = [...sessions, session]
-    setSessions(next)
-    const newBurned = next.reduce((s, e) => s + e.burnedKcal, 0)
-    if (profileDone) setStatus(calcBocoStatus(totalKcal - newBurned, targetKcal))
-    setSelectedType('')
-    setDurationInput('')
-    setStepsInput('')
-    setShowAddForm(false)
   }
 
-  function handleRemoveSession(id: string) {
+  function handleRemove(id: string) {
     removeExerciseSession(id)
-    const next = sessions.filter(s => s.id !== id)
-    setSessions(next)
-    const newBurned = next.reduce((s, e) => s + e.burnedKcal, 0)
-    if (profileDone) setStatus(calcBocoStatus(totalKcal - newBurned, targetKcal))
+    setSessions(getTodayExerciseSessions())
   }
 
-  const recommendedSets = status !== 'empty'
-    ? getRecommended(status, preferred)
-    : getRecommended('good', preferred)
-
-  const dir = STATUS_DIRECTION[status]
-
-  const isRest = status === 'under'
-
-  // 다른 방식 카드 정의
-  const OTHER_CARDS = [
-    { id: 'rest' as CardType,        label: '휴식',   icon: <MoonIcon />,   bg: 'bg-dark',  tc: 'text-white',  sc: 'text-white/50' },
-    { id: 'preferred' as CardType,   label: '선호',   icon: <StarIcon />,   bg: 'bg-lime',  tc: 'text-dark',   sc: 'text-dark/50'  },
-    { id: 'recommended' as CardType, label: '추천',   icon: <FlameIcon />,  bg: 'bg-white border border-gray-light', tc: 'text-dark', sc: 'text-dark/50' },
-    { id: 'custom' as CardType,      label: '커스텀', icon: <PencilIcon />, bg: 'bg-dark',  tc: 'text-white',  sc: 'text-white/50' },
-  ]
+  function handleChip(name: string) {
+    setInputText(name + ' ')
+    setShowInput(true)
+  }
 
   return (
-    <div className="flex flex-col min-h-screen bg-app-bg pb-[72px]">
-      {/* 헤더 */}
-      <div className="px-5 pt-5 pb-0">
-        <div className="text-[12px] font-bold text-gray-mid mb-1">{formatDate()}</div>
-        <div className="text-[22px] font-black text-dark tracking-tight mb-4">오늘 어떻게 할까요?</div>
-        <BocoCard totalKcal={totalKcal} targetKcal={targetKcal} status={status} mini />
+    <div className="flex flex-col min-h-screen bg-[#141412] pb-[72px]">
+      {/* Header */}
+      <div className="flex justify-between items-center px-5 pt-6 pb-4">
+        <div>
+          <div className="text-[11px] font-medium text-white/30 mb-0.5">{formatDateKo()}</div>
+          <div className="text-[20px] font-black text-white leading-tight">오늘의 운동</div>
+        </div>
+        {totalBurned > 0 && (
+          <div className="bg-[#C5E63A]/15 rounded-[12px] px-3 py-1.5">
+            <span className="text-[#C5E63A] font-black text-[14px]">-{totalBurned} kcal</span>
+          </div>
+        )}
       </div>
 
-      {/* ── 오늘 한 운동 기록 ── */}
-      <div className="mx-4 mt-3 bg-white rounded-[20px] p-4 border border-gray-light/50">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <div className="text-[10px] font-bold text-gray-mid tracking-widest uppercase">오늘 한 운동</div>
-            {burnedKcal > 0 && (
-              <div className="text-[13px] font-black text-dark mt-0.5">
-                총 <span className="text-lime">-{burnedKcal.toLocaleString()} kcal</span> 소모
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => setShowAddForm(v => !v)}
-            className="w-8 h-8 rounded-[10px] bg-dark flex items-center justify-center"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 2v10M2 7h10" stroke="#C5E63A" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
+      {/* Body Map */}
+      <div className="mx-4 bg-white/4 rounded-[24px] p-4">
+        <div className="text-[11px] font-bold text-white/30 mb-3 tracking-wider uppercase">오늘 운동한 부위</div>
+        <div className="flex gap-4 justify-center">
+          <BodyMapFront sessions={sessions} />
+          <BodyMapBack sessions={sessions} />
         </div>
-
-        {sessions.length === 0 && !showAddForm && (
-          <p className="text-[12px] text-gray-mid">오늘 한 운동을 기록하면 나침반이 바뀌어요</p>
-        )}
-
-        {sessions.map(s => (
-          <div key={s.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div>
-              <span className="text-[13px] font-bold text-dark">{s.type}</span>
-              <span className="text-[12px] text-gray-mid ml-2">
-                {s.steps ? `${s.steps.toLocaleString()}보` : `${s.durationMin}분`}
+        {allMuscles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {allMuscles.map(m => (
+              <span key={m} className="text-[11px] font-bold text-[#C5E63A] bg-[#C5E63A]/10 px-2 py-0.5 rounded-full">
+                {MUSCLE_LABELS[m] ?? m}
               </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-black text-lime">-{s.burnedKcal} kcal</span>
-              <button onClick={() => handleRemoveSession(s.id)} className="text-gray-mid text-sm">✕</button>
-            </div>
+            ))}
           </div>
-        ))}
-
-        {showAddForm && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            {/* 종목 칩 */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {EXERCISE_TYPES.map(ex => (
-                <button
-                  key={ex.name}
-                  onClick={() => { setSelectedType(ex.name); setDurationInput(''); setStepsInput('') }}
-                  className={`px-3 py-1.5 rounded-full text-[12px] font-black border transition-colors ${
-                    selectedType === ex.name
-                      ? 'bg-dark text-lime border-dark'
-                      : 'bg-gray-50 text-gray-mid border-gray-light'
-                  }`}
-                >
-                  {ex.name}
-                </button>
-              ))}
-            </div>
-
-            {selectedType && (
-              <div className="flex gap-2">
-                {EXERCISE_TYPES.find(e => e.name === selectedType)?.unit === 'steps' ? (
-                  <input
-                    type="number"
-                    value={stepsInput}
-                    onChange={e => setStepsInput(e.target.value)}
-                    placeholder="걸음수 입력"
-                    className="flex-1 bg-gray-50 rounded-[10px] px-3 py-2.5 text-[13px] text-dark outline-none font-sans"
-                  />
-                ) : (
-                  <input
-                    type="number"
-                    value={durationInput}
-                    onChange={e => setDurationInput(e.target.value)}
-                    placeholder="몇 분 했나요?"
-                    className="flex-1 bg-gray-50 rounded-[10px] px-3 py-2.5 text-[13px] text-dark outline-none font-sans"
-                  />
-                )}
-                <button
-                  onClick={handleAddSession}
-                  className="bg-dark text-lime font-black text-[13px] px-4 rounded-[10px]"
-                >기록</button>
-              </div>
-            )}
-          </div>
+        )}
+        {allMuscles.length === 0 && (
+          <p className="text-[12px] text-white/20 text-center mt-1">운동을 기록하면 여기에 표시돼요</p>
         )}
       </div>
 
-      {/* ── BOCO 기본 추천 (즉시 노출) ── */}
-      {!profileDone ? (
-        <div className="mx-4 mt-4 bg-white rounded-[20px] p-5 border border-gray-light/50 flex flex-col items-center gap-3 text-center">
-          <div className="w-12 h-12 rounded-[14px] bg-lime flex items-center justify-center">
-            <FlameIcon />
-          </div>
-          <div className="text-[15px] font-black text-dark">프로필을 먼저 설정해주세요</div>
-          <div className="text-[13px] text-gray-mid leading-relaxed">
-            몸무게·목표를 입력하면<br />BOCO가 딱 맞는 운동을 추천해요
-          </div>
-        </div>
-      ) : (
-        <div className="mx-4 mt-4 bg-dark rounded-[20px] p-4">
-          {/* 타이틀 */}
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1.5 h-5 rounded-full bg-lime flex-shrink-0" />
-            <div>
-              <div className="text-[10px] font-bold text-white/40 tracking-widest uppercase">BOCO 추천</div>
-              <div className="text-[16px] font-black text-white leading-tight">
-                {isRest ? '오늘은 가볍게 회복해요' : `${dir.heading} — 이 세트 어때요?`}
-              </div>
-            </div>
-          </div>
-
-          {/* 운동 세트 */}
-          {isRest ? (
-            <div className="bg-white/5 rounded-[14px] p-4">
-              <p className="text-[13px] text-white/60 leading-relaxed">
-                오늘 칼로리가 부족해요. 무리한 운동보다 가벼운 스트레칭으로 몸을 풀어주세요.
-              </p>
-              <ExerciseTable
-                exercises={recommendedSets}
-                dark
-              />
-            </div>
-          ) : (
-            <div className="bg-white/5 rounded-[14px] p-1">
-              <ExerciseTable exercises={recommendedSets} dark />
-            </div>
-          )}
-
-          {/* 완료 버튼 */}
-          <div className="mt-3">
-            {defaultDone ? (
-              <div className="text-center text-[14px] font-black text-lime py-2">완료! 오늘도 고생했어요 🎯</div>
-            ) : (
+      {/* Quick chips */}
+      {preferred.length > 0 && (
+        <div className="mx-4 mt-3">
+          <div className="text-[11px] font-bold text-white/30 mb-2 tracking-wider uppercase">내 운동</div>
+          <div className="flex flex-wrap gap-2">
+            {preferred.map(name => (
               <button
-                onClick={() => {
-                  setDefaultDone(true)
-                  saveExerciseLog({
-                    date: getTodayDate(),
-                    cardType: 'recommended',
-                    exercises: recommendedSets.map(e => e.name),
-                  })
-                }}
-                className="w-full bg-lime text-dark font-black text-[15px] py-4 rounded-[14px]"
+                key={name}
+                onClick={() => handleChip(name)}
+                className="px-3 py-1.5 rounded-full text-[12px] font-bold bg-white/6 text-white/60 border border-white/8 active:bg-white/12"
               >
-                완료했어요!
+                {name}
               </button>
-            )}
+            ))}
           </div>
         </div>
       )}
 
-      {/* ── 다른 방식으로 (accordion) ── */}
-      <div className="mx-4 mt-2">
-        <button
-          onClick={() => { setShowOtherOptions(v => !v); setActiveCard(null) }}
-          className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-[16px] border border-gray-light/50"
-        >
-          <span className="text-[13px] font-black text-gray-mid">다른 방식으로 할게요</span>
-          <svg
-            width="16" height="16" viewBox="0 0 16 16" fill="none"
-            className={`transition-transform duration-200 ${showOtherOptions ? 'rotate-180' : ''}`}
-          >
-            <path d="M4 6l4 4 4-4" stroke="#888" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-
-        {showOtherOptions && (
-          <div className="mt-2">
-            {/* 4카드 */}
-            <div className="flex gap-2 mb-2">
-              {OTHER_CARDS.map(card => (
-                <button
-                  key={card.id}
-                  onClick={() => setActiveCard(activeCard === card.id ? null : card.id)}
-                  className={`${card.bg} rounded-[16px] p-3 flex flex-col flex-1 min-w-0 text-left transition-all ${
-                    activeCard === card.id ? 'ring-2 ring-lime ring-offset-1 ring-offset-app-bg' : ''
-                  }`}
-                  style={{ minHeight: 110 }}
-                >
-                  <div className="mb-auto">{card.icon}</div>
-                  <div className={`text-[12px] font-black tracking-tight mt-2 ${card.tc}`}>{card.label}</div>
-                </button>
-              ))}
+      {/* Input */}
+      <div className="mx-4 mt-3">
+        {showInput ? (
+          <div className="bg-white/5 rounded-[16px] border border-white/8 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3">
+              <input
+                autoFocus
+                value={inputText}
+                onChange={e => setInputText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
+                placeholder="벤치프레스 3세트 10회 60kg"
+                className="flex-1 text-[13px] text-white/80 placeholder:text-white/20 outline-none bg-transparent"
+              />
+              <button
+                onClick={handleSubmit}
+                disabled={loading || !inputText.trim()}
+                className="w-7 h-7 rounded-[8px] bg-[#C5E63A] flex items-center justify-center disabled:opacity-30"
+              >
+                {loading
+                  ? <svg width="12" height="12" viewBox="0 0 12 12" className="animate-spin" fill="none"><circle cx="6" cy="6" r="4" stroke="rgba(0,0,0,0.2)" strokeWidth="2"/><path d="M6 2a4 4 0 014 4" stroke="#1A1A1A" strokeWidth="2" strokeLinecap="round"/></svg>
+                  : <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6h8M7 3l3 3-3 3" stroke="#1A1A1A" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                }
+              </button>
             </div>
-
-            {/* 선택된 카드 패널 */}
-            {activeCard === 'rest' && (
-              <OtherPanel title="오늘의 BOCO 분석">
-                <StatusRow label="섭취" value={`${totalKcal.toLocaleString()} kcal`} />
-                <StatusRow label="목표" value={`${targetKcal.toLocaleString()} kcal`} />
-                <StatusRow
-                  label="차이"
-                  value={totalKcal > targetKcal
-                    ? `+${(totalKcal - targetKcal).toLocaleString()} kcal`
-                    : `-${Math.abs(totalKcal - targetKcal).toLocaleString()} kcal`}
-                  highlight
-                />
-                <p className="text-[13px] text-gray-mid leading-relaxed mt-3">
-                  {status === 'over'  && '오늘 페이스라면 지방이 조금 쌓일 수 있어요. 내일 조절해요!'}
-                  {status === 'good'  && '완벽해요! 이대로라면 목표에 가까워지고 있어요.'}
-                  {(status === 'under' || status === 'empty') && '너무 적게 먹으면 오히려 역효과예요.'}
-                </p>
-                <OtherDoneButton done={otherDone} onDone={() => { setOtherDone(true); saveExerciseLog({ date: getTodayDate(), cardType: 'rest', exercises: [] }) }} label="오늘은 이걸로" bg="bg-dark" />
-              </OtherPanel>
-            )}
-
-            {activeCard === 'preferred' && (
-              <OtherPanel title="선호 운동 세트">
-                {preferred.length === 0 ? (
-                  <p className="text-[13px] text-gray-mid">내정보에서 선호 운동을 설정해보세요</p>
-                ) : (
-                  <ExerciseTable exercises={preferred.map(name => getExerciseDetail(name))} />
-                )}
-                {preferred.length > 0 && (
-                  <OtherDoneButton done={otherDone} onDone={() => { setOtherDone(true); saveExerciseLog({ date: getTodayDate(), cardType: 'preferred', exercises: preferred }) }} label="완료했어요!" bg="bg-lime" />
-                )}
-              </OtherPanel>
-            )}
-
-            {activeCard === 'recommended' && (
-              <OtherPanel title="오늘의 추천 세트">
-                <p className="text-[11px] text-gray-mid mb-3">
-                  {status === 'over'  && '칼로리를 소모할 수 있는 고강도 세트예요'}
-                  {status === 'good'  && '균형 잡힌 유지 운동 세트예요'}
-                  {(status === 'under' || status === 'empty') && '가볍게 몸을 풀어주는 회복 세트예요'}
-                </p>
-                <ExerciseTable exercises={recommendedSets} />
-                <OtherDoneButton done={otherDone} onDone={() => { setOtherDone(true); saveExerciseLog({ date: getTodayDate(), cardType: 'recommended', exercises: recommendedSets.map(e => e.name) }) }} label="완료했어요!" bg="bg-dark" />
-              </OtherPanel>
-            )}
-
-            {activeCard === 'custom' && (
-              <OtherPanel title="커스텀 운동 구성">
-                <div className="flex gap-2 mb-3">
-                  <div className="flex-1 flex items-center gap-2 bg-gray-50 rounded-[10px] px-3 py-2.5">
-                    <SearchIcon />
-                    <input
-                      value={customExercise}
-                      onChange={e => setCustomExercise(e.target.value)}
-                      placeholder="직접 입력도 가능해요"
-                      className="flex-1 bg-transparent text-[13px] text-dark outline-none font-sans"
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && customExercise.trim()) {
-                          if (!customList.includes(customExercise.trim())) setCustomList(prev => [...prev, customExercise.trim()])
-                          setCustomExercise('')
-                        }
-                      }}
-                    />
-                  </div>
-                  {customExercise.trim() && (
-                    <button
-                      onClick={() => {
-                        if (!customList.includes(customExercise.trim())) setCustomList(prev => [...prev, customExercise.trim()])
-                        setCustomExercise('')
-                      }}
-                      className="bg-dark text-lime font-black text-[12px] px-3 rounded-[10px]"
-                    >추가</button>
-                  )}
-                </div>
-                <div className="mb-3">
-                  <div className="text-[10px] font-black text-gray-mid tracking-widest uppercase mb-2">종목 선택</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {PREFERRED_EXERCISES.map(name => {
-                      const selected = customList.includes(name)
-                      return (
-                        <button
-                          key={name}
-                          onClick={() => setCustomList(prev => selected ? prev.filter(e => e !== name) : [...prev, name])}
-                          className={`px-3 py-1.5 rounded-full text-[12px] font-black border transition-colors ${selected ? 'bg-dark text-lime border-dark' : 'bg-gray-50 text-gray-mid border-gray-light'}`}
-                        >{name}</button>
-                      )
-                    })}
-                  </div>
-                </div>
-                {customList.length > 0 && (
-                  <>
-                    <div className="border-t border-gray-100 pt-3 mb-1">
-                      <div className="text-[10px] font-black text-gray-mid tracking-widest uppercase mb-2">오늘의 세트 ({customList.length}종목)</div>
-                      <ExerciseTable
-                        exercises={customList.map(name => getExerciseDetail(name))}
-                        onRemove={i => setCustomList(prev => prev.filter((_, j) => j !== i))}
-                      />
-                    </div>
-                    <OtherDoneButton done={otherDone} onDone={() => { setOtherDone(true); saveExerciseLog({ date: getTodayDate(), cardType: 'custom', exercises: customList }) }} label="완료했어요!" bg="bg-dark" />
-                  </>
-                )}
-              </OtherPanel>
-            )}
+            <div className="px-4 pb-2.5 text-[11px] text-white/20">
+              예) 스쿼트 4세트 12회 / 달리기 30분 / 풀업 3세트
+            </div>
           </div>
+        ) : (
+          <button
+            onClick={() => setShowInput(true)}
+            className="w-full flex items-center justify-between bg-white/5 rounded-[16px] border border-white/8 px-4 py-3.5"
+          >
+            <span className="text-[13px] text-white/30">운동 기록 추가</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="rgba(255,255,255,0.2)" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
         )}
       </div>
+
+      {/* Session list */}
+      {sessions.length > 0 && (
+        <div className="mx-4 mt-3">
+          <div className="text-[11px] font-bold text-white/30 mb-2 tracking-wider uppercase">오늘 기록</div>
+          <div className="flex flex-col gap-2">
+            {sessions.map(s => (
+              <div key={s.id} className="bg-white/5 rounded-[14px] px-4 py-3 flex items-center justify-between">
+                <div>
+                  <div className="text-[14px] font-bold text-white">{s.type}</div>
+                  <div className="text-[11px] text-white/30 mt-0.5">
+                    {s.sets && s.reps ? `${s.sets}세트 × ${s.reps}회` : ''}
+                    {s.weight ? ` · ${s.weight}kg` : ''}
+                    {s.durationMin ? `${s.durationMin}분` : ''}
+                    {s.steps ? `${s.steps.toLocaleString()}보` : ''}
+                    {s.muscles?.length ? ` · ${s.muscles.slice(0, 2).map(m => MUSCLE_LABELS[m] ?? m).join(', ')}` : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[13px] font-black text-[#C5E63A]">-{s.burnedKcal}</span>
+                  <button onClick={() => handleRemove(s.id)} className="text-white/20 hover:text-white/50">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <BottomNav />
     </div>
   )
 }
 
-/* ── 서브 컴포넌트들 ── */
-
-function OtherPanel({ title, children }: { title: string; children: React.ReactNode }) {
+function BodyMapFront({ sessions }: { sessions: ExerciseSession[] }) {
+  const m = (muscle: string) => muscleColor(getMuscleIntensity(sessions, muscle))
   return (
-    <div className="bg-white rounded-[16px] p-4 border border-gray-light/50 mt-1">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-1 h-4 rounded-full bg-lime" />
-        <div className="text-[12px] font-black text-dark">{title}</div>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function OtherDoneButton({ done, onDone, label, bg }: { done: boolean; onDone: () => void; label: string; bg: string }) {
-  if (done) return <div className="mt-3 text-center text-[13px] font-black text-lime">완료! 오늘도 고생했어요 🎯</div>
-  return (
-    <button
-      onClick={onDone}
-      className={`mt-3 w-full ${bg} ${bg === 'bg-lime' ? 'text-dark' : 'text-white'} font-black text-[14px] py-3.5 rounded-[14px]`}
-    >{label}</button>
-  )
-}
-
-function StatusRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-      <span className="text-[12px] text-gray-mid">{label}</span>
-      <span className={`text-[13px] font-black ${highlight ? 'text-lime' : 'text-dark'}`}>{value}</span>
-    </div>
-  )
-}
-
-function ExerciseRow({ ex, onRemove, dark }: { ex: ExerciseItem; onRemove?: () => void; dark?: boolean }) {
-  const isCardio = ex.type === 'cardio'
-  const isFlex   = ex.type === 'flexibility'
-  const dotColor = isCardio ? 'bg-orange' : isFlex ? 'bg-lime/60' : 'bg-lime'
-  const nameColor = dark ? 'text-white' : 'text-dark'
-  const chipBg   = dark ? 'bg-white/10' : 'bg-gray-50'
-  const chipText = dark ? 'text-white/50' : 'text-gray-mid'
-
-  return (
-    <div className={`py-3 border-b last:border-0 ${dark ? 'border-white/10' : 'border-gray-50'}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
-          <span className={`text-[13px] font-bold ${nameColor}`}>{ex.name}</span>
-          <span className={`text-[10px] ${chipText} ${chipBg} px-1.5 py-0.5 rounded-full`}>
-            {isCardio ? '유산소' : isFlex ? '유연성' : ex.type === 'core' ? 'HIIT' : '근력'}
-          </span>
-        </div>
-        {onRemove && <button onClick={onRemove} className="text-gray-mid text-sm px-1">✕</button>}
-      </div>
-
-      {isCardio && (
-        <div className="flex gap-2 mt-2 ml-3.5">
-          <MetaChip label="목표거리" value={ex.distance ?? '—'} accent dark={dark} />
-          <MetaChip label="페이스"   value={ex.pace ?? '—'}     dark={dark} />
-          <MetaChip label="예상시간" value={ex.duration ?? '—'} dark={dark} />
-        </div>
-      )}
-      {(ex.type === 'strength' || ex.type === 'core') && (
-        <div className="flex gap-2 mt-2 ml-3.5">
-          <MetaChip label="세트" value={`${ex.sets ?? 3}세트`} accent dark={dark} />
-          <MetaChip label="횟수" value={ex.reps ?? '10회'}     dark={dark} />
-          <MetaChip label="휴식" value={ex.rest ?? '45초'}     dark={dark} />
-        </div>
-      )}
-      {isFlex && (
-        <div className="flex gap-2 mt-2 ml-3.5">
-          <MetaChip label="시간"   value={ex.duration ?? '—'} accent dark={dark} />
-          {ex.note && <MetaChip label="포인트" value={ex.note} dark={dark} />}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function MetaChip({ label, value, accent, dark }: { label: string; value: string; accent?: boolean; dark?: boolean }) {
-  const bg   = dark ? 'bg-white/10' : 'bg-gray-50'
-  const lc   = dark ? 'text-white/40' : 'text-gray-mid'
-  const vc   = accent
-    ? (dark ? 'text-lime' : 'text-dark')
-    : (dark ? 'text-white/60' : 'text-gray-mid')
-  return (
-    <div className={`flex flex-col items-center ${bg} rounded-[8px] px-2.5 py-1.5 min-w-[52px]`}>
-      <span className={`text-[9px] ${lc}`}>{label}</span>
-      <span className={`text-[12px] font-black mt-0.5 ${vc}`}>{value}</span>
-    </div>
-  )
-}
-
-function ExerciseTable({ exercises, onRemove, dark }: { exercises: ExerciseItem[]; onRemove?: (i: number) => void; dark?: boolean }) {
-  return (
-    <div>
-      {exercises.map((ex, i) => (
-        <ExerciseRow key={i} ex={ex} dark={dark} onRemove={onRemove ? () => onRemove(i) : undefined} />
-      ))}
-    </div>
-  )
-}
-
-function MoonIcon() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
-      <path d="M22 16a10 10 0 01-10-10 10 10 0 000 20 10 10 0 0010-10z" fill="#C5E63A" />
+    <svg width="110" height="220" viewBox="0 0 110 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Body outline */}
+      <ellipse cx="55" cy="18" rx="14" ry="16" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+      {/* Neck */}
+      <rect x="49" y="33" width="12" height="10" rx="3" fill="rgba(255,255,255,0.06)"/>
+      {/* Shoulders */}
+      <ellipse cx="28" cy="55" rx="14" ry="10" fill={m('shoulders')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <ellipse cx="82" cy="55" rx="14" ry="10" fill={m('shoulders')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Chest */}
+      <path d="M35 43 Q55 38 75 43 L78 70 Q55 75 32 70 Z" fill={m('chest')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Upper Arms (biceps) */}
+      <rect x="14" y="55" width="14" height="38" rx="7" fill={m('biceps')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="82" y="55" width="14" height="38" rx="7" fill={m('biceps')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Forearms */}
+      <rect x="10" y="95" width="12" height="34" rx="6" fill={m('forearms')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="88" y="95" width="12" height="34" rx="6" fill={m('forearms')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Abs */}
+      <path d="M38 70 Q55 67 72 70 L70 110 Q55 113 40 110 Z" fill={m('abs')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* ab lines */}
+      <line x1="40" y1="83" x2="70" y2="83" stroke="rgba(255,255,255,0.05)" strokeWidth="0.8"/>
+      <line x1="41" y1="96" x2="69" y2="96" strokeWidth="0.8" stroke="rgba(255,255,255,0.05)"/>
+      <line x1="55" y1="70" x2="55" y2="110" strokeWidth="0.8" stroke="rgba(255,255,255,0.05)"/>
+      {/* Hips */}
+      <path d="M40 110 Q55 115 70 110 L73 130 Q55 135 37 130 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.06)" strokeWidth="1"/>
+      {/* Quads */}
+      <rect x="32" y="132" width="22" height="52" rx="11" fill={m('quads')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="56" y="132" width="22" height="52" rx="11" fill={m('quads')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Calves */}
+      <rect x="34" y="186" width="18" height="32" rx="9" fill={m('calves')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="58" y="186" width="18" height="32" rx="9" fill={m('calves')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Label */}
+      <text x="55" y="216" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="8" fontFamily="sans-serif">전면</text>
     </svg>
   )
 }
-function StarIcon() {
+
+function BodyMapBack({ sessions }: { sessions: ExerciseSession[] }) {
+  const m = (muscle: string) => muscleColor(getMuscleIntensity(sessions, muscle))
   return (
-    <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
-      <path d="M15 3l3 6.5 7 1-5 4.9 1.2 7L15 19l-6.2 3.4L10 15.4 5 10.5l7-1L15 3z" fill="#1A1A1A" />
-    </svg>
-  )
-}
-function FlameIcon() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
-      <path d="M15 27c-5.2 0-9.5-3.5-9.5-7.8 0-2.8 1.5-5.2 3.6-6.7 0 1.6.8 2.8 2 3.6 0-3.6 2-7.1 5.5-9.4 0 3.9 2.4 5.5 3.2 7.1.8-1.2.8-2.8 0-4.4 2.8 1.6 4.8 4.8 4.8 7.8 0 5.5-4.3 9.8-9.6 9.8z" fill="#C5E63A" stroke="#1A1A1A" strokeWidth="1.2" />
-    </svg>
-  )
-}
-function PencilIcon() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
-      <rect x="6" y="4" width="7.5" height="20" rx="2.5" transform="rotate(-45 15 15)" fill="#C5E63A" />
-      <path d="M5 25l3-1.2-1.8-1.8z" fill="#C5E63A" />
+    <svg width="110" height="220" viewBox="0 0 110 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Head */}
+      <ellipse cx="55" cy="18" rx="14" ry="16" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+      {/* Neck */}
+      <rect x="49" y="33" width="12" height="10" rx="3" fill="rgba(255,255,255,0.06)"/>
+      {/* Shoulders / Traps */}
+      <ellipse cx="28" cy="52" rx="14" ry="10" fill={m('upper_back')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <ellipse cx="82" cy="52" rx="14" ry="10" fill={m('upper_back')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Upper back / traps */}
+      <path d="M35 43 Q55 38 75 43 L75 65 Q55 62 35 65 Z" fill={m('upper_back')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Triceps */}
+      <rect x="14" y="55" width="14" height="38" rx="7" fill={m('triceps')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="82" y="55" width="14" height="38" rx="7" fill={m('triceps')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Forearms */}
+      <rect x="10" y="95" width="12" height="34" rx="6" fill={m('forearms')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="88" y="95" width="12" height="34" rx="6" fill={m('forearms')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Lats */}
+      <path d="M35 65 Q22 80 25 100 L40 105 Q38 85 38 70 Z" fill={m('lats')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <path d="M75 65 Q88 80 85 100 L70 105 Q72 85 72 70 Z" fill={m('lats')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Lower back */}
+      <path d="M40 100 Q55 97 70 100 L70 118 Q55 121 40 118 Z" fill={m('lower_back')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Glutes */}
+      <path d="M36 118 Q55 125 74 118 L76 138 Q55 145 34 138 Z" fill={m('glutes')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Hamstrings */}
+      <rect x="32" y="140" width="22" height="46" rx="11" fill={m('hamstrings')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="56" y="140" width="22" height="46" rx="11" fill={m('hamstrings')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Calves */}
+      <rect x="34" y="188" width="18" height="30" rx="9" fill={m('calves')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      <rect x="58" y="188" width="18" height="30" rx="9" fill={m('calves')} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      {/* Label */}
+      <text x="55" y="216" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="8" fontFamily="sans-serif">후면</text>
     </svg>
   )
 }
